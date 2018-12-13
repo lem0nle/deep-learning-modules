@@ -2,32 +2,34 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from sklearn.metrics import precision_recall_fscore_support
 
 
 class SimpleCNN(nn.Module):
     def __init__(self, n_classes):
         super().__init__()
         self.n_classes = n_classes
-        # in_channels=3, out_channels=4, kernel_size=3x3
-        self.cnn1 = nn.Conv2d(1, 4, 3)
-        self.cnn2 = nn.Conv2d(4, 8, 3)
-        self.cnn3 = nn.Conv2d(8, 16, 5)
-        self.cnn4 = nn.Conv2d(16, 32, 5)
-        self.pool = nn.MaxPool2d(2)
-        self.activation = nn.LeakyReLU()
+        self.act = nn.LeakyReLU()
+        self.feature = nn.Sequential(
+            # in_channels=3, out_channels=4, kernel_size=3x3
+            nn.Conv2d(1, 4, 3),
+            self.act,
+            nn.Conv2d(4, 8, 3),
+            self.act,
+            nn.MaxPool2d(2),
+            nn.Conv2d(8, 16, 5),
+            self.act,
+            nn.Conv2d(16, 32, 5),
+            self.act,
+            nn.MaxPool2d(2)
+        )
         self.fc = nn.Linear(32, 32)
         self.out = nn.Linear(32, n_classes)
 
     def forward(self, x):
-        act = self.activation
-        x = act(self.cnn1(x))
-        x = act(self.cnn2(x))
-        x = self.pool(x)
-        x = act(self.cnn3(x))
-        x = act(self.cnn4(x))
-        x = self.pool(x)
+        x = self.feature(x)
         x = x.mean(dim=-1).mean(dim=-1)
-        x = act(self.fc(x))
+        x = self.act(self.fc(x))
         return self.out(x)
 
 
@@ -37,6 +39,7 @@ class Trainer:
         self.batch_size = batch_size
 
     def train(self, data, n_epochs=10):
+        # TODO: add validation dataset 
         loader = DataLoader(data, batch_size=self.batch_size, shuffle=True)
         optimizer = torch.optim.Adam(self.model.parameters())
 
@@ -55,11 +58,16 @@ class Trainer:
 
             print('epoch:', i, 'loss:', loss.mean().item())
 
-    def evaluate(self):
-        pass
-
-    def save_model(self):
-        pass
-
-    def load_model(self):
-        pass
+    def evaluate(self, data):
+        loader = DataLoader(data, batch_size=2 * self.batch_size)
+        predictions = []
+        groundtruth = []
+        for i_batch, batch in enumerate(loader):
+            y_pred = self.model(batch[0])
+            y_pred = y_pred.max(dim=1)[1]
+            y_true = batch[1]
+            predictions.append(y_pred)
+            groundtruth.append(y_true)
+        y_pred = torch.cat(predictions)
+        y_true = torch.cat(groundtruth)
+        print(precision_recall_fscore_support(y_true, y_pred, average='weighted'))
